@@ -1,0 +1,7 @@
+{
+    "files.associations": {
+        "pthread.h": "c",
+        "poll.h": "c",
+        "select.h": "c"
+    }
+}
