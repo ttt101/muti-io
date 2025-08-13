@@ -42,17 +42,21 @@
 int main(){
     //IO概念：fd，socket
     int sockfd = socket(AF_INET, SOCK_STREAM,0);
+    //功能：创建一个 IPv4 (AF_INET) 的 TCP 流套接字 (SOCK_STREAM)。返回值：sockfd 是套接字的文件描述符（FD），失败时返回 -1。
     struct sockaddr_in serveraddr;
     memset(&serveraddr,0,sizeof(struct sockaddr_in));
-    serveraddr.sin_family =AF_INET;
-    serveraddr.sin_addr.s_addr = htonl(INADDR_ANY);
-    serveraddr.sin_port=htons(2048);
+    //功能：初始化服务器地址结构体 serveraddr，并清零内存。
+    serveraddr.sin_family =AF_INET;//IPv4
+    serveraddr.sin_addr.s_addr = htonl(INADDR_ANY);//监听所有网口
+    serveraddr.sin_port=htons(2048);//端口2048
+    //关键点：INADDR_ANY 表示监听所有本地 IP。htons 将端口号转换为网络字节序（大端）。
     if(-1==bind(sockfd,(struct sockaddr*)&serveraddr,sizeof(struct sockaddr))){
         perror("bind");
         return -1;
     }
+    //功能：将套接字绑定到指定的 IP 和端口。失败处理：perror 打印错误信息并退出。
     listen(sockfd,10);
-
+    //功能：将套接字设为监听状态，10 是等待连接队列的最大长度。
 #if 0
     struct sockaddr_in clientaddr;
     socklen_t len =sizeof(clientaddr);
@@ -163,24 +167,29 @@ int main(){
 
 #else //epoll 
     //epoll_create() epoll_ctl() epoll_wait()
-    int epfd = epoll_create(1);//参数大于0即可
+    int epfd = epoll_create(1);
+    //功能：创建一个 epoll 实例，参数 1 是历史遗留值（只需 >0）。返回值：epfd 是 epoll 的文件描述符。
     struct epoll_event ev;
-    ev.events = EPOLLIN;
-    ev.data.fd=sockfd;
+    ev.events = EPOLLIN;//监听可读事件
+    ev.data.fd=sockfd;//关联套接字
     epoll_ctl(epfd,EPOLL_CTL_ADD,sockfd,&ev);
+    //功能：将监听套接字 sockfd 添加到 epoll 实例，监听其可读事件（新连接到达时会触发）。
     struct epoll_event events[1024]={0};
     while(1){
         int nready = epoll_wait(epfd,events,1024,-1);
+        //功能：阻塞等待事件就绪，-1 表示无限等待。返回值：nready 是就绪事件的数量，events 数组存储具体事件。
         int i = 0;
         for(i=0;i<nready;++i){
             int connfd =events[i].data.fd;
             if(sockfd == connfd){
+                //条件判断：如果就绪的 FD 是监听套接字 sockfd，表示有新连接。
                 struct sockaddr_in clientaddr;
                 socklen_t len =sizeof(clientaddr);
                 int clientfd=accept(sockfd,(struct sockaddr*)&clientaddr,&len);
+                //功能：接受新连接，返回客户端套接字 clientfd，clientaddr 存储客户端地址。
                 ev.events = EPOLLIN | EPOLLET;//边沿触发：ET 来一次只触发一次
                 ev.data.fd = clientfd;
-                epoll_ctl(epfd,EPOLL_CTL_ADD,clientfd,&ev);
+                epoll_ctl(epfd,EPOLL_CTL_ADD,clientfd,&ev);//将 clientfd 加入 epoll 监听。
                 printf("clientfd: %d\n",clientfd);
             }else if(events[i].events & EPOLLIN){
                 char buffer[10]={0}; //水平触发:LT 有数据就继续传 eg:发40个分四组读 可以用于分包
@@ -190,8 +199,8 @@ int main(){
                     epoll_ctl(epfd,EPOLL_CTL_DEL,connfd,NULL);               
                     close(connfd);
                     continue;
-                }
-                send(connfd,buffer,count,0);
+                }//关键点：recv 返回 0 表示客户端主动关闭连接。需从 epoll 移除并关闭 connfd。
+                send(connfd,buffer,count,0);//回显数据
                 printf("clientfd: %d,count: %d,buffer: %s\n",connfd,count,buffer);
             }
         }
